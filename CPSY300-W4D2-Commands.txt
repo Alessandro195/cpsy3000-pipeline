@@ -1,0 +1,206 @@
+CPSY 300 · Week 4 Day 2 · Commands and files
+=============================================
+
+Copy each block from this file, never from the slides: the slides do not keep
+the spaces, and YAML counts spaces.
+
+Anything in <angle brackets> is yours to fill in. Replace the brackets as well.
+Example: rg-cpsy300-w4d2-<your initials> becomes rg-cpsy300-w4d2-ab
+
+
+---------------------------------------------------------------------------
+BLOCK 1 · github.com · file name: .github/workflows/whoami.yml
+Paste everything between the two lines of dashes, exactly as it is.
+---------------------------------------------------------------------------
+name: Show my subject
+
+on: workflow_dispatch
+
+jobs:
+  whoami:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print both possible subjects
+        env:
+          OWNER: ${{ github.repository_owner }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+          FULL: ${{ github.repository }}
+          REPO_ID: ${{ github.repository_id }}
+          REF: ${{ github.ref }}
+        run: |
+          REPO="${FULL##*/}"
+          echo "NAME: repo:${FULL}:ref:${REF}"
+          echo "IDS:  repo:${OWNER}@${OWNER_ID}/${REPO}@${REPO_ID}:ref:${REF}"
+---------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------
+BLOCK 2 · Cloud Shell (Bash) · create the identity
+First TYPE these three lines yourself, one at a time, using YOUR values.
+  Region: lowercase, no spaces (Canada Central = canadacentral).
+  Registry name: 5-50 lowercase letters and digits only, unique in all of
+  Azure, for example acrsmith4821.
+---------------------------------------------------------------------------
+# RG = the name of this lab's resource group (the folder for everything)
+RG=rg-cpsy300-w4d2-<your initials>
+# LOC = the region everything goes into (lowercase, no spaces)
+LOC=<your region, e.g. canadacentral>
+# ACR = the name of your NEW Azure Container Registry
+ACR=acr<yoursurname><4 digits>
+
+Then PASTE the rest of the block:
+
+# Create the resource group
+az group create -n $RG -l $LOC
+# Create the registry the pipeline will push images to (Basic tier)
+az acr create -n $ACR -g $RG --sku Basic --admin-enabled true
+# Create the pipeline's own identity, gh-deploy: an identity with no password
+az identity create -n gh-deploy -g $RG -l $LOC
+
+# --- part 2: read back four values and keep them in variables (nothing is printed)
+# CLIENT_ID = the identity's ID that GitHub will sign in with
+CLIENT_ID=$(az identity show -n gh-deploy -g $RG --query clientId -o tsv)
+# PRINCIPAL = the identity's ID that permissions are given to
+PRINCIPAL=$(az identity show -n gh-deploy -g $RG --query principalId -o tsv)
+# SUB = the ID of your Azure subscription
+SUB=$(az account show --query id -o tsv)
+# TENANT = the ID of your directory (SAIT's)
+TENANT=$(az account show --query tenantId -o tsv)
+---------------------------------------------------------------------------
+If az acr create says the name is already in use: type the ACR= line again
+with different digits, then run the az acr create line again.
+
+
+---------------------------------------------------------------------------
+BLOCK 3 · Cloud Shell · the two trust rules
+Do this in Notepad (TextEdit on a Mac) FIRST:
+  - Replace the text between the first pair of single quotes with your NAME
+    line from the whoami run, starting at repo: (do not include "NAME:").
+  - Replace the text between the second pair with your IDS line, starting
+    at repo: (do not include "IDS:").
+  - Keep the single quotes.
+Then paste the whole block into Cloud Shell.
+---------------------------------------------------------------------------
+SUB_NAME='repo:mystudent/cpsy300-pipeline:ref:refs/heads/main'
+SUB_IDS='repo:mystudent@40123456/cpsy300-pipeline@1029384756:ref:refs/heads/main'
+
+az identity federated-credential create \
+    --name github-name --identity-name gh-deploy -g $RG \
+    --issuer https://token.actions.githubusercontent.com \
+    --subject "$SUB_NAME" --audiences api://AzureADTokenExchange
+
+az identity federated-credential create \
+    --name github-ids --identity-name gh-deploy -g $RG \
+    --issuer https://token.actions.githubusercontent.com \
+    --subject "$SUB_IDS" --audiences api://AzureADTokenExchange
+---------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------
+BLOCK 4 · Cloud Shell · permission, then the three values for GitHub
+---------------------------------------------------------------------------
+az role assignment create \
+    --assignee-object-id $PRINCIPAL \
+    --assignee-principal-type ServicePrincipal \
+    --role Contributor \
+    --scope /subscriptions/$SUB/resourceGroups/$RG
+
+echo "AZURE_CLIENT_ID=$CLIENT_ID"
+echo "AZURE_TENANT_ID=$TENANT"
+echo "AZURE_SUBSCRIPTION_ID=$SUB"
+---------------------------------------------------------------------------
+In GitHub, each secret's value is only the part AFTER the = sign.
+
+
+---------------------------------------------------------------------------
+BLOCK 5 · Cloud Shell · the environment and the container app
+If Cloud Shell closed since Block 2, TYPE the RG=, LOC= and ACR= lines from
+Block 2 again first. Replace <your initials> (three places) before pasting.
+---------------------------------------------------------------------------
+az containerapp env create --name cae-w4d2-<your initials> \
+      --resource-group $RG --location $LOC --enable-workload-profiles true
+
+az containerapp create --name ca-pipeline-<your initials> -g $RG \
+      --environment cae-w4d2-<your initials> \
+      --image mcr.microsoft.com/k8se/quickstart:latest \
+      --target-port 80 --ingress external \
+      --registry-server $ACR.azurecr.io \
+      --query properties.configuration.ingress.fqdn
+---------------------------------------------------------------------------
+The last line it prints is your app's address. Add https:// in front.
+
+
+---------------------------------------------------------------------------
+BLOCK 6 · github.com · file name: index.html
+Change Your Full Name to your own name.
+---------------------------------------------------------------------------
+<h1>Deployed by the pipeline - Your Full Name</h1>
+---------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------
+BLOCK 7 · github.com · file name: Dockerfile   (capital D, no extension)
+---------------------------------------------------------------------------
+FROM nginx:alpine
+COPY index.html /usr/share/nginx/html/index.html
+EXPOSE 80
+---------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------
+BLOCK 8 · github.com · file name: .github/workflows/deploy.yml
+After pasting, change the three lines under env: to YOUR names, exactly as
+you created them in Cloud Shell. Change nothing else.
+---------------------------------------------------------------------------
+name: Build and deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_NAME: acr<yoursurname><4 digits>
+  RESOURCE_GROUP: rg-cpsy300-w4d2-<your initials>
+  CONTAINERAPP: ca-pipeline-<your initials>
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign in to the registry
+        run: az acr login --name $ACR_NAME
+
+      - name: Build and push
+        run: |
+          IMAGE=$ACR_NAME.azurecr.io/pipeline:${{ github.sha }}
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      - name: Deploy
+        run: |
+          az containerapp update \
+            --name $CONTAINERAPP \
+            --resource-group $RESOURCE_GROUP \
+            --image $ACR_NAME.azurecr.io/pipeline:${{ github.sha }}
+---------------------------------------------------------------------------
+
+
+---------------------------------------------------------------------------
+CLEAN UP · portal
+---------------------------------------------------------------------------
+Portal -> Resource groups -> rg-cpsy300-w4d2-<your initials>
+       -> Delete resource group -> type the name -> Delete.
+The registry bills daily until you do this. Keep the GitHub repository.
