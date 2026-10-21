@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  ACR_NAME: acrpirela2026
+  ACR_NAME: acrpirela4827
   RESOURCE_GROUP: rg-cpsy300-w4d2-ap
   CONTAINERAPP: ca-pipeline-ap
 
