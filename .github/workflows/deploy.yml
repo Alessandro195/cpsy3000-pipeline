@@ -20,6 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check Azure secret fingerprints
+        env:
+          CLIENT: ${{ secrets.AZURE_CLIENT_ID }}
+          TENANT: ${{ secrets.AZURE_TENANT_ID }}
+          SUBSCRIPTION: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          for key in CLIENT TENANT SUBSCRIPTION; do
+            value="${!key}"
+            if [ -z "$value" ]; then
+              echo "$key = MISSING"
+            else
+              echo "$key = $(printf '%s' "$value" | sha256sum | cut -c1-12)"
+            fi
+          done
+
       - uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
